@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Painel de Sinal — EMA/RSI</title>
+<style>
+  :root{
+    --bg:#0B1220;
+    --panel:#121B2E;
+    --panel-2:#0F1626;
+    --line:#22304A;
+    --text:#E7ECF4;
+    --muted:#8496B3;
+    --buy:#2FBF71;
+    --sell:#E5484D;
+    --wait:#E0A93E;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--sans);}
+  body{min-height:100vh;padding:24px 16px 60px;}
+  .wrap{max-width:760px;margin:0 auto;}
+
+  header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:8px;}
+  h1{font-size:19px;font-weight:600;margin:0;letter-spacing:-0.01em;}
+  .sub{color:var(--muted);font-size:13px;}
+
+  .controls{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
+  select, button{
+    background:var(--panel);border:1px solid var(--line);color:var(--text);
+    padding:8px 12px;border-radius:8px;font-size:13px;font-family:var(--sans);
+    cursor:pointer;
+  }
+  select:focus, button:focus{outline:2px solid var(--muted);outline-offset:1px;}
+  button.primary{background:#1B2C4C;border-color:#2A4270;}
+  button.primary:hover{background:#22345A;}
+
+  .signal-card{
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:24px;margin-bottom:16px;text-align:center;
+  }
+  .signal-label{font-size:12px;color:var(--muted);margin-bottom:10px;}
+  .signal-value{font-size:34px;font-weight:700;font-family:var(--mono);letter-spacing:-0.02em;}
+  .signal-value.buy{color:var(--buy);}
+  .signal-value.sell{color:var(--sell);}
+  .signal-value.wait{color:var(--wait);}
+  .signal-detail{margin-top:10px;color:var(--muted);font-size:13px;line-height:1.5;}
+  .price-now{font-family:var(--mono);font-size:15px;margin-top:14px;color:var(--text);}
+
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 12px;}
+  .stat .k{font-size:11px;color:var(--muted);margin-bottom:6px;}
+  .stat .v{font-family:var(--mono);font-size:17px;font-weight:600;}
+  .stat .v.pos{color:var(--buy);}
+  .stat .v.neg{color:var(--sell);}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px;}
+  .panel h2{font-size:13px;color:var(--muted);font-weight:600;margin:0 0 12px;}
+  canvas{width:100%;height:180px;display:block;}
+
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  th,td{text-align:right;padding:6px 4px;font-family:var(--mono);border-bottom:1px solid var(--line);}
+  th:first-child,td:first-child{text-align:left;}
+  th{color:var(--muted);font-weight:500;}
+  td.pos{color:var(--buy);}
+  td.neg{color:var(--sell);}
+
+  .disclaimer{
+    font-size:12px;color:var(--muted);line-height:1.6;padding:14px 16px;
+    border:1px solid var(--line);border-radius:10px;background:var(--panel-2);
+  }
+  .status{font-size:12px;color:var(--muted);text-align:center;margin-top:14px;min-height:16px;}
+  a{color:inherit;}
+
+  #lockScreen{
+    position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;
+    z-index:100;padding:20px;
+  }
+  .lock-box{width:100%;max-width:280px;text-align:center;}
+  .lock-box h2{font-size:15px;font-weight:600;margin:0 0 16px;}
+  .lock-box input{
+    width:100%;background:var(--panel);border:1px solid var(--line);color:var(--text);
+    padding:10px 12px;border-radius:8px;font-size:14px;font-family:var(--mono);
+    margin-bottom:10px;text-align:center;
+  }
+  .lock-box button{width:100%;padding:10px;border-radius:8px;background:#1B2C4C;border:1px solid #2A4270;color:var(--text);font-size:13px;cursor:pointer;}
+  .lock-error{color:var(--sell);font-size:12px;margin-top:8px;min-height:14px;}
+  #appContent{display:none;}
+</style>
+</head>
+<body>
+
+<div id="lockScreen">
+  <div class="lock-box">
+    <h2>Acesso restrito</h2>
+    <input type="password" id="lockInput" placeholder="Senha" autocomplete="off" />
+    <button id="lockSubmit">Entrar</button>
+    <div class="lock-error" id="lockError"></div>
+  </div>
+</div>
+
+<div class="wrap" id="appContent">
+
+  <header>
+    <div>
+      <h1>Painel de Sinal — EMA20/50 + RSI</h1>
+      <div class="sub">Ferramenta pessoal de apoio à decisão. Não executa ordens.</div>
+    </div>
+  </header>
+
+  <div class="controls">
+    <select id="pair">
+      <option value="BTCUSDT">BTC/USDT</option>
+      <option value="ETHUSDT">ETH/USDT</option>
+    </select>
+    <select id="interval">
+      <option value="1h">1 hora</option>
+      <option value="4h" selected>4 horas</option>
+      <option value="1d">1 dia</option>
+    </select>
+    <button class="primary" id="refresh">Atualizar</button>
+  </div>
+
+  <div class="signal-card">
+    <div class="signal-label">SINAL ATUAL</div>
+    <div class="signal-value wait" id="signalValue">—</div>
+    <div class="signal-detail" id="signalDetail">Carregando dados...</div>
+    <div class="price-now" id="priceNow"></div>
+  </div>
+
+  <div class="grid">
+    <div class="stat">
+      <div class="k">Retorno simulado</div>
+      <div class="v" id="statReturn">—</div>
+    </div>
+    <div class="stat">
+      <div class="k">Taxa de acerto</div>
+      <div class="v" id="statWinrate">—</div>
+    </div>
+    <div class="stat">
+      <div class="k">Queda máxima</div>
+      <div class="v" id="statDrawdown">—</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>CURVA DE CAPITAL SIMULADA (backtest histórico)</h2>
+    <canvas id="equityChart"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2>ÚLTIMAS OPERAÇÕES SIMULADAS</h2>
+    <table id="tradesTable">
+      <thead><tr><th>Saída</th><th>Entrada $</th><th>Saída $</th><th>Resultado</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="disclaimer">
+    Isto é um indicador técnico (EMA + RSI) rodando sobre dados públicos, sem garantia nenhuma de acerto.
+    O backtest usa preços passados — desempenho passado não indica desempenho futuro.
+    Nenhuma ordem é enviada automaticamente: qualquer operação na Binance é feita manualmente, por sua conta.
+    Taxas e derrapagem (slippage) reais podem reduzir o resultado mostrado aqui.
+  </div>
+
+  <div class="status" id="status"></div>
+</div>
+
+<script>
+const PASSWORD_HASH = 'c127c8e3606c1bd618c57eec028e0603c05b302d6c69c313303b0c4b57d3c477';
+
+async function sha256(text){
+  const data = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+async function tryUnlock(){
+  const input = document.getElementById('lockInput');
+  const errEl = document.getElementById('lockError');
+  const hash = await sha256(input.value);
+  if(hash === PASSWORD_HASH){
+    sessionStorage.setItem('unlocked','1');
+    document.getElementById('lockScreen').style.display = 'none';
+    document.getElementById('appContent').style.display = 'block';
+    run();
+  } else {
+    errEl.textContent = 'Senha incorreta.';
+    input.value = '';
+  }
+}
+
+document.getElementById('lockSubmit').addEventListener('click', tryUnlock);
+document.getElementById('lockInput').addEventListener('keydown', e=>{ if(e.key==='Enter') tryUnlock(); });
+
+if(sessionStorage.getItem('unlocked')==='1'){
+  document.getElementById('lockScreen').style.display = 'none';
+  document.getElementById('appContent').style.display = 'block';
+}
+
+const FEE = 0.001;      // 0.10% por operação, igual à Binance spot padrão
+const RSI_PERIOD = 14;
+const EMA_FAST = 20;
+const EMA_SLOW = 50;
+
+function ema(values, period){
+  const k = 2/(period+1);
+  const out = new Array(values.length).fill(null);
+  if(values.length < period) return out;
+  let seed = values.slice(0,period).reduce((a,b)=>a+b,0)/period;
+  out[period-1] = seed;
+  for(let i=period;i<values.length;i++){
+    seed = (values[i]-seed)*k + seed;
+    out[i] = seed;
+  }
+  return out;
+}
+
+function rsi(values, period){
+  const out = new Array(values.length).fill(null);
+  if(values.length <= period) return out;
+  let gains=0, losses=0;
+  for(let i=1;i<=period;i++){
+    const d = values[i]-values[i-1];
+    if(d>=0) gains+=d; else losses+=Math.abs(d);
+  }
+  let avgGain = gains/period, avgLoss = losses/period;
+  out[period] = avgLoss===0 ? 100 : 100 - 100/(1+avgGain/avgLoss);
+  for(let i=period+1;i<values.length;i++){
+    const d = values[i]-values[i-1];
+    avgGain = (avgGain*(period-1) + Math.max(d,0))/period;
+    avgLoss = (avgLoss*(period-1) + Math.max(-d,0))/period;
+    out[i] = avgLoss===0 ? 100 : 100 - 100/(1+avgGain/avgLoss);
+  }
+  return out;
+}
+
+async function fetchKlines(symbol, interval){
+  const limit = 500;
+  try{
+    const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
+    if(!r.ok) throw new Error('binance-http-'+r.status);
+    const raw = await r.json();
+    return raw.map(c => ({ time:c[0], close:parseFloat(c[4]) }));
+  }catch(e){
+    // fallback: Coinbase (par diferente, aproxima só para não ficar sem dado)
+    const product = symbol.replace('USDT','-USD');
+    const gran = interval==='1h' ? 3600 : interval==='4h' ? 14400 : 86400;
+    const r2 = await fetch(`https://api.exchange.coinbase.com/products/${product}/candles?granularity=${gran}`);
+    const raw2 = await r2.json();
+    return raw2.map(c => ({ time:c[0]*1000, close:c[4] })).reverse();
+  }
+}
+
+function backtest(candles){
+  const closes = candles.map(c=>c.close);
+  const emaFast = ema(closes, EMA_FAST);
+  const emaSlow = ema(closes, EMA_SLOW);
+  const rsiVals = rsi(closes, RSI_PERIOD);
+
+  let capital = 1000;
+  let equity = [];
+  let position = null; // { entryPrice, entryTime }
+  let trades = [];
+  let peak = capital;
+  let maxDD = 0;
+
+  for(let i=0;i<candles.length;i++){
+    const f = emaFast[i], s = emaSlow[i], r = rsiVals[i];
+    if(f!=null && s!=null && r!=null){
+      if(!position && f > s && r < 70){
+        position = { entryPrice: closes[i], entryTime: candles[i].time };
+      } else if(position && (f < s || r > 80)){
+        const exitPrice = closes[i];
+        const grossRet = (exitPrice - position.entryPrice) / position.entryPrice;
+        const netRet = grossRet - FEE*2;
+        capital = capital * (1+netRet);
+        trades.push({
+          exitTime: candles[i].time,
+          entryPrice: position.entryPrice,
+          exitPrice,
+          pnlPct: netRet*100
+        });
+        position = null;
+      }
+    }
+    peak = Math.max(peak, capital);
+    const dd = (peak-capital)/peak*100;
+    maxDD = Math.max(maxDD, dd);
+    equity.push(capital);
+  }
+
+  const lastF = emaFast[emaFast.length-1];
+  const lastS = emaSlow[emaSlow.length-1];
+  const lastR = rsiVals[rsiVals.length-1];
+  let signal = 'wait', detail='';
+  if(lastF!=null && lastS!=null && lastR!=null){
+    if(!position && lastF > lastS && lastR < 70){
+      signal = 'buy';
+      detail = `EMA20 acima da EMA50 e RSI ${lastR.toFixed(0)} (abaixo de 70) — condição de entrada.`;
+    } else if(position && (lastF < lastS || lastR > 80)){
+      signal = 'sell';
+      detail = `EMA20 abaixo da EMA50 ou RSI ${lastR.toFixed(0)} esticado — condição de saída.`;
+    } else if(lastF > lastS){
+      signal = 'wait';
+      detail = `Tendência de alta (EMA20 > EMA50), já em posição simulada ou aguardando confirmação. RSI ${lastR.toFixed(0)}.`;
+    } else {
+      signal = 'wait';
+      detail = `EMA20 abaixo da EMA50 — sem tendência de alta. RSI ${lastR.toFixed(0)}. Melhor não comprar agora.`;
+    }
+  }
+
+  const winTrades = trades.filter(t=>t.pnlPct>0).length;
+  const winrate = trades.length ? (winTrades/trades.length*100) : null;
+  const totalReturn = (capital-1000)/1000*100;
+
+  return { signal, detail, equity, trades, winrate, totalReturn, maxDD, lastPrice: closes[closes.length-1] };
+}
+
+function drawEquityChart(canvas, equity){
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w*dpr; canvas.height = h*dpr;
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,w,h);
+
+  if(!equity.length) return;
+  const min = Math.min(...equity), max = Math.max(...equity);
+  const pad = 8;
+  const range = (max-min) || 1;
+
+  ctx.beginPath();
+  equity.forEach((v,i)=>{
+    const x = pad + (i/(equity.length-1))*(w-pad*2);
+    const y = h-pad - ((v-min)/range)*(h-pad*2);
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  const rising = equity[equity.length-1] >= equity[0];
+  ctx.strokeStyle = rising ? '#2FBF71' : '#E5484D';
+  ctx.lineWidth = 1.6;
+  ctx.stroke();
+
+  ctx.strokeStyle = '#22304A';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad, h-pad); ctx.lineTo(w-pad, h-pad);
+  ctx.stroke();
+}
+
+function fmtPct(v){
+  const s = v.toFixed(1)+'%';
+  return v>0 ? '+'+s : s;
+}
+
+async function run(){
+  const statusEl = document.getElementById('status');
+  const pair = document.getElementById('pair').value;
+  const interval = document.getElementById('interval').value;
+  statusEl.textContent = 'Buscando preços...';
+
+  try{
+    const candles = await fetchKlines(pair, interval);
+    const result = backtest(candles);
+
+    const sv = document.getElementById('signalValue');
+    sv.className = 'signal-value ' + result.signal;
+    sv.textContent = result.signal==='buy' ? 'COMPRAR' : result.signal==='sell' ? 'SAIR / VENDER' : 'AGUARDAR';
+    document.getElementById('signalDetail').textContent = result.detail;
+    document.getElementById('priceNow').textContent = pair.replace('USDT','/USDT') + '  $' + result.lastPrice.toLocaleString('pt-BR',{maximumFractionDigits:2});
+
+    const retEl = document.getElementById('statReturn');
+    retEl.textContent = fmtPct(result.totalReturn);
+    retEl.className = 'v ' + (result.totalReturn>=0?'pos':'neg');
+
+    document.getElementById('statWinrate').textContent = result.winrate!=null ? result.winrate.toFixed(0)+'%' : '—';
+    document.getElementById('statDrawdown').textContent = '-'+result.maxDD.toFixed(1)+'%';
+
+    drawEquityChart(document.getElementById('equityChart'), result.equity);
+
+    const tbody = document.querySelector('#tradesTable tbody');
+    tbody.innerHTML = '';
+    result.trades.slice(-8).reverse().forEach(t=>{
+      const tr = document.createElement('tr');
+      const d = new Date(t.exitTime);
+      tr.innerHTML = `
+        <td>${d.toLocaleDateString('pt-BR')}</td>
+        <td>${t.entryPrice.toFixed(2)}</td>
+        <td>${t.exitPrice.toFixed(2)}</td>
+        <td class="${t.pnlPct>=0?'pos':'neg'}">${fmtPct(t.pnlPct)}</td>`;
+      tbody.appendChild(tr);
+    });
+
+    statusEl.textContent = 'Atualizado às ' + new Date().toLocaleTimeString('pt-BR');
+  }catch(e){
+    statusEl.textContent = 'Erro ao buscar dados: ' + e.message;
+  }
+}
+
+document.getElementById('refresh').addEventListener('click', run);
+document.getElementById('pair').addEventListener('change', run);
+document.getElementById('interval').addEventListener('change', run);
+window.addEventListener('resize', ()=>{
+  const canvas = document.getElementById('equityChart');
+  if(canvas.dataset.rendered) run();
+});
+
+if(sessionStorage.getItem('unlocked')==='1'){
+  run();
+}
+setInterval(()=>{ if(sessionStorage.getItem('unlocked')==='1') run(); }, 5*60*1000);
+</script>
+</body>
+</html>
