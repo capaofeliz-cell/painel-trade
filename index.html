@@ -134,6 +134,25 @@ th{color:var(--muted);font-weight:500;font-size:10px;letter-spacing:.04em;}
 td.pos{color:var(--buy);}
 td.neg{color:var(--sell);}
 
+.op-panel{background:var(--surface);border:1px solid var(--gold-dim);border-radius:14px;padding:18px;margin-bottom:16px;}
+.op-form{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
+.op-field{flex:1;min-width:140px;}
+.op-field label{display:block;font-size:11px;color:var(--muted);margin-bottom:6px;font-family:var(--mono);}
+.op-field input{
+  width:100%;background:var(--surface-2);border:1px solid var(--line);color:var(--text);
+  padding:9px 10px;border-radius:6px;font-size:14px;font-family:var(--mono);
+}
+.op-field input:focus{outline:none;border-color:var(--gold-dim);}
+.op-buttons{display:flex;gap:8px;align-items:flex-end;}
+.op-result{display:none;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:4px;}
+.op-result.show{display:grid;}
+.op-result .stat{background:var(--surface-2);}
+.op-empty{color:var(--muted);font-size:13px;text-align:center;padding:6px 0;}
+.pnl-banner{display:none;text-align:center;padding:16px;border-radius:10px;margin-top:12px;font-family:var(--mono);font-size:20px;font-weight:700;}
+.pnl-banner.show{display:block;}
+.pnl-banner.pos{background:rgba(53,179,126,0.12);color:var(--buy);border:1px solid var(--buy-dim);}
+.pnl-banner.neg{background:rgba(232,85,91,0.12);color:var(--sell);border:1px solid var(--sell-dim);}
+
 .disclaimer{
   font-size:11px;color:var(--muted);line-height:1.7;padding:14px 16px;
   border:1px solid var(--line-soft);border-radius:10px;background:transparent;
@@ -203,6 +222,34 @@ td.neg{color:var(--sell);}
         <div class="price-now" id="priceNow">—</div>
         <div class="price-pair" id="pricePair"></div>
       </div>
+    </div>
+
+    <div class="op-panel">
+      <div class="panel-head">
+        <h2>MINHA OPERAÇÃO — LUCRO/PREJUÍZO AO VIVO</h2>
+        <div class="panel-tag" id="opTag"></div>
+      </div>
+      <div class="op-form">
+        <div class="op-field">
+          <label>Preço de compra (por unidade, USDT)</label>
+          <input type="number" id="opEntryPrice" placeholder="ex: 75000" step="any" />
+        </div>
+        <div class="op-field">
+          <label>Valor investido (USDT)</label>
+          <input type="number" id="opInvested" placeholder="ex: 100" step="any" />
+        </div>
+        <div class="op-buttons">
+          <button class="primary" id="opSave">Salvar operação</button>
+          <button id="opClear">Limpar</button>
+        </div>
+      </div>
+      <div class="op-empty" id="opEmpty">Nenhuma operação salva para este par ainda.</div>
+      <div class="op-result" id="opResult">
+        <div class="stat"><div class="k">QUANTIDADE COMPRADA</div><div class="v" id="opQty">—</div></div>
+        <div class="stat"><div class="k">VALOR ATUAL</div><div class="v" id="opCurrentValue">—</div></div>
+        <div class="stat"><div class="k">VARIAÇÃO</div><div class="v" id="opPctSmall">—</div></div>
+      </div>
+      <div class="pnl-banner" id="pnlBanner"></div>
     </div>
 
     <div class="grid">
@@ -528,6 +575,7 @@ async function run(){
 
     updateChart(result);
     drawEquityChart(document.getElementById('equityChart'), result.equity);
+    renderPosition(result.lastPrice);
 
     const tbody = document.querySelector('#tradesTable tbody');
     tbody.innerHTML = '';
@@ -553,6 +601,94 @@ async function run(){
   refreshWatchlist();
 }
 
+// ---------- MINHA OPERAÇÃO (lucro/prejuízo ao vivo) ----------
+function getPositions(){
+  try{ return JSON.parse(localStorage.getItem('painelPositions') || '{}'); }catch(e){ return {}; }
+}
+function savePositions(obj){
+  localStorage.setItem('painelPositions', JSON.stringify(obj));
+}
+let lastPnlSign = null;
+function notifyUser(title, body){
+  playAlertBeep();
+  if(window.Notification && Notification.permission === 'granted'){
+    try{ new Notification(title, { body }); }catch(e){}
+  }
+}
+function renderPosition(currentPrice){
+  const pair = document.getElementById('pair').value;
+  const positions = getPositions();
+  const pos = positions[pair];
+  const emptyEl = document.getElementById('opEmpty');
+  const resultEl = document.getElementById('opResult');
+  const bannerEl = document.getElementById('pnlBanner');
+  document.getElementById('opTag').textContent = pair.replace('USDT','/USDT');
+
+  if(!pos){
+    emptyEl.style.display = 'block';
+    resultEl.classList.remove('show');
+    bannerEl.classList.remove('show');
+    document.getElementById('opEntryPrice').value = '';
+    document.getElementById('opInvested').value = '';
+    lastPnlSign = null;
+    return;
+  }
+  emptyEl.style.display = 'none';
+  resultEl.classList.add('show');
+  document.getElementById('opEntryPrice').value = pos.entryPrice;
+  document.getElementById('opInvested').value = pos.invested;
+
+  const qty = pos.invested / pos.entryPrice;
+  const currentValue = qty * currentPrice;
+  const pnl = currentValue - pos.invested;
+  const pnlPct = (pnl / pos.invested) * 100;
+  const sign = pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : lastPnlSign;
+
+  document.getElementById('opQty').textContent = qty.toFixed(6);
+  document.getElementById('opCurrentValue').textContent = 'US$ ' + currentValue.toFixed(2);
+  const pctSmall = document.getElementById('opPctSmall');
+  pctSmall.textContent = fmtPct(pnlPct);
+  pctSmall.className = 'v ' + (pnl>=0?'pos':'neg');
+
+  bannerEl.classList.add('show');
+  bannerEl.className = 'pnl-banner show ' + (pnl>=0?'pos':'neg');
+  bannerEl.textContent = (pnl>=0 ? '+' : '') + 'US$ ' + pnl.toFixed(2) + '  (' + fmtPct(pnlPct) + ')';
+
+  if(lastPnlSign !== null && sign !== lastPnlSign){
+    if(sign === 'pos'){
+      notifyUser('Você está no lucro', pair.replace('USDT','/USDT') + ': +US$ ' + pnl.toFixed(2));
+    } else if(sign === 'neg'){
+      notifyUser('Você está no prejuízo', pair.replace('USDT','/USDT') + ': US$ ' + pnl.toFixed(2));
+    }
+  }
+  lastPnlSign = sign;
+}
+document.getElementById('opSave').addEventListener('click', ()=>{
+  const entryPrice = parseFloat(document.getElementById('opEntryPrice').value);
+  const invested = parseFloat(document.getElementById('opInvested').value);
+  if(!entryPrice || !invested || entryPrice<=0 || invested<=0){
+    alert('Preencha preço de compra e valor investido (números maiores que zero).');
+    return;
+  }
+  const pair = document.getElementById('pair').value;
+  const positions = getPositions();
+  positions[pair] = { entryPrice, invested };
+  savePositions(positions);
+  lastPnlSign = null;
+  if(window.Notification && Notification.permission === 'default'){
+    Notification.requestPermission();
+  }
+  run();
+});
+document.getElementById('opClear').addEventListener('click', ()=>{
+  const pair = document.getElementById('pair').value;
+  const positions = getPositions();
+  delete positions[pair];
+  savePositions(positions);
+  lastPnlSign = null;
+  run();
+});
+
 function boot(){
   buildWatchlist();
   initChart();
@@ -562,7 +698,7 @@ function boot(){
 }
 
 document.getElementById('refresh').addEventListener('click', run);
-document.getElementById('pair').addEventListener('change', run);
+document.getElementById('pair').addEventListener('change', ()=>{ lastPnlSign = null; run(); });
 document.getElementById('interval').addEventListener('change', run);
 
 if(sessionStorage.getItem('unlocked')==='1'){
